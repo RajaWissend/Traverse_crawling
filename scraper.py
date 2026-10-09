@@ -2,14 +2,12 @@ import pandas as pd
 import requests, json
 from bs4 import BeautifulSoup
 import re
+from curl_cffi import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import argparse
 import os
-
-# =========================
-# ARGUMENT PARSER
-# =========================
+s = requests.Session(impersonate="chrome")
 parser = argparse.ArgumentParser(
     description="Travers Competitor Pricing Scraper"
 )
@@ -59,6 +57,12 @@ headers = {
     'x-algolia-api-key': '63e2a5040c7f053f65f54964f1c7746d',
     'x-algolia-application-id': '1HWJVF93ZD'
 }
+
+headerss = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
+    "referer": "https://www.travers.com/catalogsearch/result/?q=7100139230",
+} 
 
 MODEL_KEY_RE = re.compile(r"^model_num_\d+$")
 
@@ -178,18 +182,16 @@ def process_row(index, row):
 
         product_dict['Product URL'] = product_url
 
-        r2 = requests.get(product_url, timeout=20)
-
+        # r2 = requests.get(product_url)
+        # breakpoint()
+        r2 = s.get(product_url, headers=headerss, timeout=30)
         print(f"------------ {sku} {r2.status_code} ---------")
-
         if r2.status_code != 200:
-
-            product_dict['Error'] = (
-                f"Product page status {r2.status_code}"
-            )
-
+            product_dict['Error'] = (f"Product page status {r2.status_code}")
+            print(f"Product page status {r2.status_code}")
+            breakpoint()
             return product_dict
-
+        
         soup = BeautifulSoup(r2.content, 'html.parser')
         model_datas = []
         model_data = soup.select("tr.text-sm")
@@ -197,20 +199,12 @@ def process_row(index, row):
             if row.select_one('th').get_text(strip=True) == 'Model #':
                 model_datas.append(row.select_one('td').get_text(strip=True))
 
-        # model_datas = re.findall(
-        #     r'{"label":"Model #","value":"(.*)","code":"model_num_1851"}',
-        #     r2.text
-        # )
 
         brand_datas = re.findall(
             r'"item_brand":"(.*)","quantity"',
             r2.text
         )
-        # brand_datas = re.findall(
-        #     r'{"label":"Brand","value":"(.*)","code":"brand_123"}',
-        #     r2.text
-        # )
-
+        
         sku_match = (
             True
             if sku.lower() == next(
@@ -222,17 +216,17 @@ def process_row(index, row):
 
         brand_name = next((d for d in brand_datas), None)
 
-        brand_match = (
-            brand_matchs(brands, brand_name)
+        brand_match = (brand_matchs(brands, brand_name)
             if brands and brand_name
             else False
         )
+        # breakpoint()
 
         if not (sku_match and brand_match):
 
             product_dict['Error'] = "SKU / Brand mismatch"
             return product_dict
-
+        
         prices = list(set([
             p.text.replace("$",'').strip()
             for p in soup.select(
@@ -241,7 +235,8 @@ def process_row(index, row):
                 '.catalog_price .price'
             )
         ]))
-
+        # breakpoint()
+        print(prices)
         title_tag = soup.select_one(
             '.mobile-product-title h1'
         )
